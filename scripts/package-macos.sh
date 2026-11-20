@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Packs Glossplay.app and a .dmg on macOS. Run on a Mac (or the macos CI runner) after
-#   brew install mpv ffmpeg dylibbundler create-dmg
+#   brew install mpv ffmpeg dylibbundler
 #   cargo build --release --locked -p glossplay
 # Usage: scripts/package-macos.sh [path/to/glossplay]   -> dist/Glossplay-<version>-macos-<arch>.dmg
 set -euo pipefail
@@ -8,7 +8,7 @@ set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 exe="${1:-$repo/target/release/glossplay}"
 [ -f "$exe" ] || { echo "Binary not found: $exe (cargo build --release -p glossplay)" >&2; exit 1; }
-for t in dylibbundler create-dmg iconutil sips; do
+for t in dylibbundler iconutil sips hdiutil; do
   command -v "$t" >/dev/null || { echo "Missing tool: $t" >&2; exit 1; }
 done
 
@@ -70,14 +70,23 @@ cat > "$app/Contents/Info.plist" <<PLIST
 PLIST
 
 mkdir -p "$app/Contents/Resources/licenses"
-cp "$repo/LICENSE" "$repo/THIRD-PARTY.txt" "$repo/THIRD-PARTY-RUST.txt" "$app/Contents/Resources/licenses/"
+for f in LICENSE THIRD-PARTY.txt THIRD-PARTY-RUST.txt; do
+  if [ -f "$repo/$f" ]; then cp "$repo/$f" "$app/Contents/Resources/licenses/"; fi
+done
 
 # Ad-hoc signature (no Apple Developer account): Apple Silicon refuses unsigned code.
 # For distribution without the right-click "Open" step, sign with a Developer ID and notarize.
 codesign --force --deep --sign - "$app"
 
 dmg="$out/Glossplay-$version-macos-$arch.dmg"
-create-dmg --volname "Glossplay" --window-size 540 360 --icon-size 96 \
-  --icon "Glossplay.app" 130 170 --app-drop-link 410 170 --no-internet-enable \
-  "$dmg" "$app"
+# Plain hdiutil: works on headless CI (create-dmg drives Finder, which can hang there).
+stage="$(mktemp -d)/Glossplay"
+mkdir -p "$stage"
+cp -R "$app" "$stage/"
+ln -s /Applications "$stage/Applications"
+for i in 1 2 3; do
+  hdiutil create -volname "Glossplay" -srcfolder "$stage" -ov -format UDZO "$dmg" && break
+  echo "hdiutil failed (try $i), retrying..." >&2; sleep 5
+done
+[ -f "$dmg" ] || { echo "Could not create $dmg" >&2; exit 1; }
 echo "Done: $dmg"
