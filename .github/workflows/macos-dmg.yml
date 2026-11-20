@@ -18,7 +18,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: brew install mpv ffmpeg dylibbundler create-dmg
       - run: cargo build --release --locked -p glossplay
-      - run: scripts/package-macos.sh
+      - run: bash scripts/package-macos.sh
       - uses: actions/upload-artifact@v4
         with:
           name: glossplay-macos-${{ matrix.os }}
